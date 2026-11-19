@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CH57x Keypad Configurator</title>
+<style>
+  body { font-family: monospace; padding: 12px; background: #fff; color: #000; margin: 0; }
+  fieldset { margin-bottom: 12px; padding: 8px 10px; }
+  legend { font-weight: bold; }
+  button { padding: 4px 8px; margin: 2px; cursor: pointer; }
+  button.active { font-weight: bold; outline: 2px solid blue; }
+  button.pressed { background: yellow; }
+  table, th, td { border: 1px solid #aaa; border-collapse: collapse; padding: 4px 8px; }
+  textarea { width: 100%; height: 140px; font-family: monospace; }
+  .slot-btn { min-width: 85px; height: 48px; text-align: center; }
+  .slot-btn.selected { border: 2px solid red; font-weight: bold; }
+  .log-box { width: 100%; height: 110px; overflow-y: scroll; border: 1px solid #666; background: #f8f8f8; padding: 4px; white-space: pre-wrap; font-size: 11px; }
+  .tech-only { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+  <div>
+    <b>CH57x Keypad Configurator (3-Key + 1-Knob)</b>
+    <span id="hid-status" style="margin-left: 10px; color: red;">Not Connected</span>
+  </div>
+  <div>
+    <b>Mode:</b>
+    <button id="btn-mode-simple" class="active" onclick="setMode('simple')">Simple</button>
+    <button id="btn-mode-tech" onclick="setMode('tech')">Advanced</button>
+  </div>
+</div>
+
+<!-- ══ 1. CONNECT & FLASH ══ -->
+<fieldset>
+  <legend>1. Device Connection &amp; Actions</legend>
+  <div>
+    <button onclick="connectWebHID()">Connect WebHID</button>
+    <button onclick="sendActiveLayerToDevice()" style="font-weight: bold; color: blue;">Flash Layer (<span id="lbl-flash-layer">1</span>)</button>
+    <button onclick="sendAllLayersToDevice()">Flash All 3 Layers</button>
+    <button onclick="loadDefaultPreset()">Reset Default Mapping</button>
+    <button onclick="downloadYAML()">Download .yaml</button>
+    <button onclick="document.getElementById('yaml-file-input').click()">Open .yaml</button>
+    <input type="file" id="yaml-file-input" accept=".yaml,.yml,.txt" style="display:none" onchange="handleYamlFileImport(event)">
+  </div>
+</fieldset>
+
+<!-- ══ 2. LED CONTROL ══ -->
+<fieldset>
+  <legend>2. LED Backlight Control</legend>
+  <div>
+    <label><b>Mode:</b>
+      <select id="led-mode-select">
+        <option value="0">0: Off</option>
+        <option value="1" selected>1: Backlight (Always On)</option>
+        <option value="2">2: Breathing</option>
+        <option value="3">3: Reactive Press (Shock)</option>
+        <option value="4">4: Wave / Shock 2</option>
+        <option value="5">5: Flash / Strobe</option>
+      </select>
+    </label>
+    <button onclick="sendLedMode()" style="font-weight: bold;">Apply LED</button>
+    <span id="led-status" style="color: blue; margin-left: 8px;"></span>
+  </div>
+</fieldset>
+
+<!-- ══ 3. KEYS & KNOB ══ -->
+<fieldset>
+  <legend>3. Keys &amp; Knob</legend>
+  <div style="margin-bottom: 8px;">
+    <b>Layer:</b>
+    <button id="tab-layer-1" class="active" onclick="switchLayer(1)">Layer 1</button>
+    <button id="tab-layer-2" onclick="switchLayer(2)">Layer 2</button>
+    <button id="tab-layer-3" onclick="switchLayer(3)">Layer 3</button>
+
+    <span style="margin-left: 15px;">
+      <b>Orientation:</b>
+      <select id="orientation-select" onchange="changeOrientation(this.value)">
+        <option value="normal" selected>normal (Buttons Left)</option>
+        <option value="upsidedown">upsidedown (Knob Left)</option>
+        <option value="clockwise">clockwise (Buttons Top)</option>
+        <option value="counterclockwise">counterclockwise (Buttons Bottom)</option>
+      </select>
+    </span>
+
+    <span id="grid-controls" style="margin-left: 15px;">
+      <b>Row:</b>
+      <select id="row-select" onchange="changeActiveRow(parseInt(this.value, 10))"></select>
+      <span style="margin-left: 8px;"><b>Knob:</b></span>
+      <select id="knob-select" onchange="changeActiveKnob(parseInt(this.value, 10))"></select>
+    </span>
+
+    <span id="yaml-dim-info" style="margin-left: 12px; color: #444; font-size: 11px;"></span>
+  </div>
+
+  <div style="display: flex; gap: 20px; align-items: flex-start;">
+    <div>
+      <b>Buttons (Hardware K1..K3):</b><br>
+      <button id="cap-K1" class="slot-btn selected" onclick="selectSlot('K1')">K1<br><span id="lbl-K1">a</span></button>
+      <button id="cap-K2" class="slot-btn" onclick="selectSlot('K2')">K2<br><span id="lbl-K2">ctrl-a</span></button>
+      <button id="cap-K3" class="slot-btn" onclick="selectSlot('K3')">K3<br><span id="lbl-K3">alt-shift</span></button>
+    </div>
+
+    <div>
+      <b>Knob (Hardware):</b><br>
+      <button id="cap-knob-ccw" class="slot-btn" onclick="selectSlot('knob-ccw')">CCW<br><span id="lbl-knob-ccw">wheelup</span></button>
+      <button id="cap-knob-press" class="slot-btn" onclick="selectSlot('knob-press')">Press<br><span id="lbl-knob-press">click</span></button>
+      <button id="cap-knob-cw" class="slot-btn" onclick="selectSlot('knob-cw')">CW<br><span id="lbl-knob-cw">wheeldown</span></button>
+    </div>
+  </div>
+</fieldset>
+
+<!-- ══ 4. SLOT EDITOR ══ -->
+<fieldset>
+  <legend>4. Edit: <span id="ed-slot-name" style="color: blue;">K1</span></legend>
+  <div>
+    <button id="btn-capture" onclick="toggleSlotCapture()">Capture Keypress</button>
+    <span id="capture-status" style="margin-left: 6px; color: green; font-weight: bold;"></span>
+  </div>
+
+  <div style="margin-top: 6px;">
+    <b>Type:</b>
+    <label><input type="radio" name="slot-type" value="key" id="type-radio-key" checked onchange="changeSlotType('key')"> Key</label>
+    <label><input type="radio" name="slot-type" value="mouse" id="type-radio-mouse" onchange="changeSlotType('mouse')"> Mouse</label>
+    <label><input type="radio" name="slot-type" value="media" id="type-radio-media" onchange="changeSlotType('media')"> Media</label>
+  </div>
+
+  <!-- Key Form -->
+  <div id="panel-key" style="margin-top: 6px;">
+    <div>
+      <b>Mods:</b>
+      <label><input type="checkbox" id="chk-ctrl" onchange="reconstructAccord()"> ctrl</label>
+      <label><input type="checkbox" id="chk-shift" onchange="reconstructAccord()"> shift</label>
+      <label><input type="checkbox" id="chk-alt" onchange="reconstructAccord()"> alt</label>
+      <label><input type="checkbox" id="chk-win" onchange="reconstructAccord()"> win</label>
+    </div>
+    <div style="margin-top: 4px;">
+      <b>Key:</b> <select id="key-select" onchange="reconstructAccord()"></select>
+      <span style="margin-left: 10px;"><b>Accord:</b> <input type="text" id="raw-accord-input" style="width: 180px;" oninput="handleManualAccordInput(this.value)"></span>
+    </div>
+  </div>
+
+  <!-- Mouse Form -->
+  <div id="panel-mouse" style="display: none; margin-top: 6px;">
+    <button onclick="setMouseAction('click')">Left Click</button>
+    <button onclick="setMouseAction('click(right)')">Right Click</button>
+    <button onclick="setMouseAction('click(middle)')">Middle Click</button>
+    <button onclick="setMouseAction('click+rclick')">Left+Right</button>
+    <button onclick="setMouseAction('wheelup')">Wheel Up</button>
+    <button onclick="setMouseAction('wheeldown')">Wheel Down</button>
+  </div>
+
+  <!-- Media Form -->
+  <div id="panel-media" style="display: none; margin-top: 6px;">
+    <button onclick="setMediaAction('volumeup')">Vol +</button>
+    <button onclick="setMediaAction('volumedown')">Vol -</button>
+    <button onclick="setMediaAction('mute')">Mute</button>
+    <button onclick="setMediaAction('play')">Play/Pause</button>
+    <button onclick="setMediaAction('next')">Next</button>
+    <button onclick="setMediaAction('prev')">Prev</button>
+    <button onclick="setMediaAction('stop')">Stop</button>
+  </div>
+
+  <div style="margin-top: 8px;">
+    <button onclick="saveCurrentSlot()" style="font-weight: bold;">Save</button>
+    <button onclick="clearCurrentSlot()">Clear</button>
+  </div>
+</fieldset>
+
+<!-- ══ ADVANCED / TECHNICAL OPTIONS ══ -->
+<div id="tech-section" class="tech-only">
+  <!-- HID Interface Selection -->
+  <fieldset>
+    <legend>Advanced: HID Interfaces</legend>
+    <div>
+      <b>Active Interface:</b>
+      <select id="hid-interface-select" onchange="selectInterfaceByIndex(this.value)">
+        <option value="-1">None</option>
+      </select>
+      <button onclick="cycleHIDInterface()">Cycle Interface</button>
+      <button onclick="scanHIDDevices()">Scan Interfaces</button>
+      <span id="selected-iface-hint" style="color: blue; margin-left: 6px;"></span>
+    </div>
+    <div style="margin-top: 6px;">
+      <b>Report ID:</b>
+      <select id="report-id-select">
+        <option value="3" selected>0x03 (Standard Vendor)</option>
+        <option value="0">0x00</option>
+        <option value="1">0x01</option>
+      </select>
+      <span style="margin-left: 10px;"><b>Packet Delay:</b></span>
+      <select id="packet-delay-select">
+        <option value="80" selected>80 ms</option>
+        <option value="40">40 ms</option>
+        <option value="120">120 ms</option>
+      </select>
+      <button onclick="testDiagnosticWrite()">Diagnostic Write</button>
+    </div>
+  </fieldset>
+
+  <!-- Live Key Detection Bar -->
+  <fieldset>
+    <legend>Advanced: Live Detection</legend>
+    <button id="btn-detect-toggle" onclick="toggleLiveDetect()">Live Key Detection (OFF)</button>
+    <span style="margin-left: 10px;">Last: <b id="last-input-display">(none)</b></span>
+    <span style="margin-left: 10px;">Hits: <b id="hit-counter">0</b></span>
+  </fieldset>
+
+  <!-- Summary Table -->
+  <fieldset>
+    <legend>Advanced: Layer <span id="lbl-table-layer">1</span> Table</legend>
+    <table>
+      <thead>
+        <tr><th>Slot</th><th>Name</th><th>Type</th><th>Accord</th></tr>
+      </thead>
+      <tbody id="summary-tbody"></tbody>
+    </table>
+  </fieldset>
+
+  <!-- YAML Box -->
+  <fieldset>
+    <legend>Advanced: YAML Text</legend>
+    <textarea id="yaml-text-box"></textarea>
+    <div>
+      <button onclick="applyYamlFromBox()">Apply YAML Text</button>
+      <button onclick="refreshYamlBox()">Refresh YAML Text</button>
+    </div>
+  </fieldset>
+
+  <!-- Console Log -->
+  <fieldset>
+    <legend>Advanced: Console Log</legend>
+    <div class="log-box" id="device-log">Ready.</div>
+  </fieldset>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  CONSTANTS & DATA
+// ══════════════════════════════════════════════════════════════════
+const BUTTON_IDS = ['K1', 'K2', 'K3'];
+const KNOB_IDS   = ['knob-ccw', 'knob-press', 'knob-cw'];
+const ALL_SLOTS  = [...BUTTON_IDS, ...KNOB_IDS];
+
+const HARDWARE_SLOT_IDS = {
+  'K1': 0x01, 'K2': 0x02, 'K3': 0x03,
+  'knob-ccw': 0x0D, 'knob-press': 0x0E, 'knob-cw': 0x0F
+};
+
+const HID_USAGE_MAP = {
+  'a':0x04,'b':0x05,'c':0x06,'d':0x07,'e':0x08,'f':0x09,'g':0x0A,'h':0x0B,
+  'i':0x0C,'j':0x0D,'k':0x0E,'l':0x0F,'m':0x10,'n':0x11,'o':0x12,'p':0x13,
+  'q':0x14,'r':0x15,'s':0x16,'t':0x17,'u':0x18,'v':0x19,'w':0x1A,'x':0x1B,
+  'y':0x1C,'z':0x1D,'1':0x1E,'2':0x1F,'3':0x20,'4':0x21,'5':0x22,'6':0x23,
+  '7':0x24,'8':0x25,'9':0x26,'0':0x27,'enter':0x28,'escape':0x29,'backspace':0x2A,
+  'tab':0x2B,'space':0x2C,'minus':0x2D,'equal':0x2E,'leftbracket':0x2F,'rightbracket':0x30,
+  'backslash':0x31,'nonushash':0x32,'semicolon':0x33,'quote':0x34,'grave':0x35,'comma':0x36,'dot':0x37,
+  'slash':0x38,'capslock':0x39,'f1':0x3A,'f2':0x3B,'f3':0x3C,'f4':0x3D,'f5':0x3E,
+  'f6':0x3F,'f7':0x40,'f8':0x41,'f9':0x42,'f10':0x43,'f11':0x44,'f12':0x45,
+  'printscreen':0x46,'insert':0x49,'home':0x4A,'pageup':0x4B,'delete':0x4C,'end':0x4D,'pagedown':0x4E,
+  'right':0x4F,'left':0x50,'down':0x51,'up':0x52,
+  'numlock':0x53,'numpadslash':0x54,'numpadasterisk':0x55,'numpadminus':0x56,'numpadplus':0x57,
+  'numpadenter':0x58,'numpad1':0x59,'numpad2':0x5A,'numpad3':0x5B,'numpad4':0x5C,
+  'numpad5':0x5D,'numpad6':0x5E,'numpad7':0x5F,'numpad8':0x60,'numpad9':0x61,'numpad0':0x62,'numpaddot':0x63,
+  'nonusbackslash':0x64,'application':0x65,'power':0x66,'numpadequal':0x67,
+  'f13':0x68,'f14':0x69,'f15':0x6A,'f16':0x6B,'f17':0x6C,'f18':0x6D,'f19':0x6E,
+  'f20':0x6F,'f21':0x70,'f22':0x71,'f23':0x72,'f24':0x73
+};
+
+const MOD_FLAGS = {
+  'ctrl': 0x01, 'shift': 0x02, 'alt': 0x04, 'opt': 0x04, 'win': 0x08, 'cmd': 0x08,
+  'rctrl': 0x10, 'rshift': 0x20, 'ralt': 0x40, 'ropt': 0x40, 'rwin': 0x80, 'rcmd': 0x80
+};
+
+const MEDIA_USAGE_MAP = {
+  'volumeup': 0xE9, 'volumedown': 0xEA, 'mute': 0xE2,
+  'play': 0xCD, 'next': 0xB5, 'prev': 0xB6, 'previous': 0xB6, 'stop': 0xB7,
+  'favorites': 0x82, 'calculator': 0x92, 'screenlock': 0x94
+};
+
+const MOUSE_BASE_MAP = {
+  'click': 0x01,
+  'click(left)': 0x01,
+  'click(right)': 0x02,
+  'rclick': 0x02,
+  'click(middle)': 0x04,
+  'mclick': 0x04,
+  'click+rclick': 0x03,
+  'click(left+right)': 0x03,
+  'wheelup': 0x10,
+  'wheeldown': 0x20
+};
+
+const DEFAULT_CONFIG_TEXT = `orientation: normal
+rows: 3
+columns: 4
+knobs: 2
+layers:
+  - buttons:
+      - ["a", "ctrl-a", "alt-shift", "alt-ctrl,ctrl-b"]
+      - ["e", "f", "g", "h"]
+      - ["<100>", "j", "k", "l"]
+    knobs:
+      - ccw: "wheelup"
+        press: "click"
+        cw: "wheeldown"
+      - ccw: "shift-wheelup"
+        press: "shift-click"
+        cw: "shift-wheeldown"
+  - buttons:
+      - ["click", "click(middle)", "click+rclick", "ctrl-mclick"]
+      - ["move(0,10)", "alt-drag(right,10,0)", "ctrl-move(5,5)", "ctrl-wheelup"]
+      - ["alt-wheel(1)", "ctrl-click", "wheelup", "wheelup"]
+    knobs:
+      - ccw: "left"
+        press: "enter"
+        cw: "right"
+      - ccw: "ctrl-left"
+        press: "ctrl-enter"
+        cw: "ctrl-right"
+  - buttons:
+      - ["play", "prev", "next", "mute"]
+      - ["2", "3", "4", "5"]
+      - ["6", "7", "8", "9"]
+    knobs:
+      - ccw: "volumedown"
+        press: "mute"
+        cw: "volumeup"
+      - ccw: "d"
+        press: "e"
+        cw: "f"
+`;
+
+// Model State
+let model = {
+  orientation: 'normal',
+  rows: 3,
+  columns: 4,
+  knobs: 2,
+  layers: []
+};
+
+let currentLayer = 1;
+let activeRowIndex = 0;
+let activeKnobIndex = 0;
+let selectedSlot = 'K1';
+let captureMode = false;
+let liveDetect = false;
+let authorizedDevices = [];
+let activeDeviceIndex = -1;
+let hidDevice = null;
+let totalHits = 0;
+let uiMode = 'simple';
+
+// ══════════════════════════════════════════════════════════════════
+//  INITIALIZATION & UI MODE
+// ══════════════════════════════════════════════════════════════════
+function setMode(mode) {
+  uiMode = mode;
+  document.getElementById('btn-mode-simple').classList.toggle('active', mode === 'simple');
+  document.getElementById('btn-mode-tech').classList.toggle('active', mode === 'tech');
+  document.getElementById('tech-section').style.display = (mode === 'tech') ? 'block' : 'none';
+}
+
+function init() {
+  populateKeyDropdown();
+  loadConfigFromStorage();
+  updateUI();
+  setupEventListeners();
+  checkExistingHIDPermissions();
+}
+
+async function checkExistingHIDPermissions() {
+  if (!navigator.hid) return;
+  try {
+    const devs = await navigator.hid.getDevices();
+    if (devs && devs.length) {
+      updateInterfaceDropdown(devs);
+      autoSelectBestInterface(devs);
+    }
+  } catch (_) {}
+}
+
+function loadDefaultPreset() {
+  parseYamlIntoModel(parseYamlText(DEFAULT_CONFIG_TEXT));
+  saveConfigToStorage();
+  updateUI();
+  refreshYamlBox();
+  log("Reset to default mapping.");
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  YAML PARSER & SERIALIZER
+// ══════════════════════════════════════════════════════════════════
+function parseArrayLine(line) {
+  const raw = line.replace(/^\s*-\s*/, '').trim();
+  if (!raw.startsWith('[') || !raw.endsWith(']')) return [];
+  const inner = raw.slice(1, -1).trim();
+  if (!inner) return [];
+
+  const items = [];
+  let cur = '';
+  let inDouble = false;
+  let inSingle = false;
+  let depth = 0;
+
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (ch === '(' && !inDouble && !inSingle) {
+      depth++;
+      cur += ch;
+    } else if (ch === ')' && !inDouble && !inSingle) {
+      depth--;
+      cur += ch;
+    } else if (ch === ',' && !inDouble && !inSingle && depth === 0) {
+      items.push(cur.trim().replace(/^['"]|['"]$/g, ''));
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) {
+    items.push(cur.trim().replace(/^['"]|['"]$/g, ''));
+  }
+  return items;
+}
+
+function parseYamlText(text) {
+  const parsed = {
+    orientation: 'normal',
+    rows: 1,
+    columns: 3,
+    knobs: 1,
+    layers: []
+  };
+
+  const lines = text.split(/\r?\n/);
+  let curLayer = null;
+  let inKnobs = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    if (line.startsWith('orientation:')) {
+      parsed.orientation = line.split(':')[1].trim().replace(/['"]/g, '');
+    } else if (line.startsWith('rows:')) {
+      parsed.rows = parseInt(line.split(':')[1].trim(), 10) || 1;
+    } else if (line.startsWith('columns:')) {
+      parsed.columns = parseInt(line.split(':')[1].trim(), 10) || 3;
+    } else if (line.startsWith('knobs:')) {
+      parsed.knobs = parseInt(line.split(':')[1].trim(), 10) || 1;
+    } else if (line.startsWith('- buttons:') || (line.startsWith('buttons:') && parsed.layers.length === 0)) {
+      curLayer = { buttons: [], knobs: [] };
+      parsed.layers.push(curLayer);
+      inKnobs = false;
+    } else if (line.startsWith('knobs:')) {
+      inKnobs = true;
+    } else if (!inKnobs && (line.startsWith('- [') || (line.startsWith('[') && curLayer))) {
+      if (curLayer) {
+        curLayer.buttons.push(parseArrayLine(line));
+      }
+    } else if (inKnobs && curLayer) {
+      if (line.startsWith('- ccw:') || line.startsWith('- press:') || line.startsWith('- cw:') || line === '-') {
+        curLayer.knobs.push({});
+      }
+      const activeKnob = curLayer.knobs.length ? curLayer.knobs[curLayer.knobs.length - 1] : null;
+      if (activeKnob) {
+        const clean = line.replace(/^-\s*/, '');
+        if (clean.startsWith('ccw:')) activeKnob.ccw = clean.split(':')[1].trim().replace(/^['"]|['"]$/g, '');
+        else if (clean.startsWith('press:')) activeKnob.press = clean.split(':')[1].trim().replace(/^['"]|['"]$/g, '');
+        else if (clean.startsWith('cw:')) activeKnob.cw = clean.split(':')[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+    }
+  }
+
+  return parsed;
+}
+
+function parseYamlIntoModel(parsedObj) {
+  model.orientation = parsedObj.orientation || 'normal';
+  model.rows = parsedObj.rows || 1;
+  model.columns = parsedObj.columns || 3;
+  model.knobs = parsedObj.knobs || 1;
+  model.layers = [];
+
+  for (let l = 0; l < 3; l++) {
+    const srcLayer = parsedObj.layers[l] || { buttons: [], knobs: [] };
+    const layerButtons = [];
+    const numRows = Math.max(1, model.rows, srcLayer.buttons.length);
+    for (let r = 0; r < numRows; r++) {
+      const srcRow = srcLayer.buttons[r] || [];
+      const numCols = Math.max(3, model.columns, srcRow.length);
+      const rowArr = [];
+      for (let c = 0; c < numCols; c++) {
+        rowArr.push(srcRow[c] !== undefined ? srcRow[c] : '');
+      }
+      layerButtons.push(rowArr);
+    }
+
+    const layerKnobs = [];
+    const numKnobs = Math.max(1, model.knobs, srcLayer.knobs.length);
+    for (let k = 0; k < numKnobs; k++) {
+      const srcKnob = srcLayer.knobs[k] || {};
+      layerKnobs.push({
+        ccw: srcKnob.ccw || '',
+        press: srcKnob.press || '',
+        cw: srcKnob.cw || ''
+      });
+    }
+
+    model.layers.push({
+      buttons: layerButtons,
+      knobs: layerKnobs
+    });
+  }
+
+  activeRowIndex = 0;
+  activeKnobIndex = 0;
+  document.getElementById('orientation-select').value = model.orientation;
+}
+
+function generateYAML() {
+  let yaml = `orientation: ${model.orientation}\nrows: ${model.rows}\ncolumns: ${model.columns}\nknobs: ${model.knobs}\n\nlayers:\n`;
+
+  for (let l = 0; l < 3; l++) {
+    const lObj = model.layers[l] || { buttons: [], knobs: [] };
+    yaml += `  - buttons:\n`;
+    for (let r = 0; r < model.rows; r++) {
+      const row = (lObj.buttons[r] || []).slice(0, model.columns);
+      const rowFormatted = row.map(action => {
+        if (!action) return '""';
+        return `"${action}"`;
+      }).join(', ');
+      yaml += `      - [${rowFormatted}]\n`;
+    }
+
+    yaml += `    knobs:\n`;
+    for (let k = 0; k < model.knobs; k++) {
+      const knob = lObj.knobs[k] || { ccw: '', press: '', cw: '' };
+      yaml += `      - ccw: "${knob.ccw || ''}"\n`;
+      yaml += `        press: "${knob.press || ''}"\n`;
+      yaml += `        cw: "${knob.cw || ''}"\n`;
+    }
+  }
+
+  return yaml;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  ACTION TYPE DETECTION
+// ══════════════════════════════════════════════════════════════════
+function detectActionType(accordStr) {
+  accordStr = (accordStr || '').toLowerCase().trim();
+  if (!accordStr) return 'key';
+  if (MEDIA_USAGE_MAP[accordStr]) return 'media';
+
+  const parts = accordStr.split('-');
+  const base = parts[parts.length - 1];
+  if (MOUSE_BASE_MAP[base] || base.startsWith('wheel(') || base.startsWith('click(') || base.startsWith('drag(') || base.startsWith('move(')) {
+    return 'mouse';
+  }
+  return 'key';
+}
+
+function getSlotAccord(slotId) {
+  const layer = model.layers[currentLayer - 1];
+  if (!layer) return '';
+
+  if (BUTTON_IDS.includes(slotId)) {
+    const colIdx = BUTTON_IDS.indexOf(slotId);
+    const row = layer.buttons[activeRowIndex] || [];
+    return row[colIdx] || '';
+  }
+
+  const knob = layer.knobs[activeKnobIndex] || { ccw: '', press: '', cw: '' };
+  if (slotId === 'knob-ccw') return knob.ccw || '';
+  if (slotId === 'knob-press') return knob.press || '';
+  if (slotId === 'knob-cw') return knob.cw || '';
+  return '';
+}
+
+function setSlotAccord(slotId, accordStr) {
+  const layer = model.layers[currentLayer - 1];
+  if (!layer) return;
+
+  if (BUTTON_IDS.includes(slotId)) {
+    const colIdx = BUTTON_IDS.indexOf(slotId);
+    if (!layer.buttons[activeRowIndex]) layer.buttons[activeRowIndex] = [];
+    layer.buttons[activeRowIndex][colIdx] = accordStr;
+  } else {
+    if (!layer.knobs[activeKnobIndex]) layer.knobs[activeKnobIndex] = { ccw: '', press: '', cw: '' };
+    const knob = layer.knobs[activeKnobIndex];
+    if (slotId === 'knob-ccw') knob.ccw = accordStr;
+    if (slotId === 'knob-press') knob.press = accordStr;
+    if (slotId === 'knob-cw') knob.cw = accordStr;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  UI UPDATES
+// ══════════════════════════════════════════════════════════════════
+function updateUI() {
+  updateGridSelectors();
+
+  BUTTON_IDS.forEach(id => {
+    const btn = document.getElementById('cap-' + id);
+    const lbl = document.getElementById('lbl-' + id);
+    btn.classList.toggle('selected', selectedSlot === id);
+    const acc = getSlotAccord(id);
+    if (lbl) lbl.textContent = acc || '—';
+  });
+
+  KNOB_IDS.forEach(id => {
+    const btn = document.getElementById('cap-' + id);
+    const lbl = document.getElementById('lbl-' + id);
+    btn.classList.toggle('selected', selectedSlot === id);
+    const acc = getSlotAccord(id);
+    if (lbl) lbl.textContent = acc || '—';
+  });
+
+  for (let l = 1; l <= 3; l++) {
+    document.getElementById('tab-layer-' + l).classList.toggle('active', currentLayer === l);
+  }
+  document.getElementById('lbl-flash-layer').textContent = currentLayer;
+  const tLayer = document.getElementById('lbl-table-layer');
+  if (tLayer) tLayer.textContent = currentLayer;
+
+  const dimInfo = document.getElementById('yaml-dim-info');
+  if (dimInfo) {
+    dimInfo.textContent = `[${model.rows}x${model.columns} buttons, ${model.knobs} knob${model.knobs > 1 ? 's' : ''}]`;
+  }
+
+  renderSummaryTable();
+  renderEditor();
+}
+
+function updateGridSelectors() {
+  const rowSel = document.getElementById('row-select');
+  const knobSel = document.getElementById('knob-select');
+
+  rowSel.innerHTML = '';
+  for (let r = 0; r < model.rows; r++) {
+    const opt = document.createElement('option');
+    opt.value = r;
+    opt.textContent = `Row ${r + 1} (${r === activeRowIndex ? 'Active' : ''})`;
+    rowSel.appendChild(opt);
+  }
+  rowSel.value = activeRowIndex;
+
+  knobSel.innerHTML = '';
+  for (let k = 0; k < model.knobs; k++) {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = `Knob ${k + 1} (${k === activeKnobIndex ? 'Active' : ''})`;
+    knobSel.appendChild(opt);
+  }
+  knobSel.value = activeKnobIndex;
+}
+
+function changeActiveRow(newRow) {
+  activeRowIndex = Math.max(0, Math.min(model.rows - 1, newRow));
+  updateUI();
+  refreshYamlBox();
+}
+
+function changeActiveKnob(newKnob) {
+  activeKnobIndex = Math.max(0, Math.min(model.knobs - 1, newKnob));
+  updateUI();
+  refreshYamlBox();
+}
+
+function renderSummaryTable() {
+  const tbody = document.getElementById('summary-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = ALL_SLOTS.map(id => {
+    const acc = getSlotAccord(id);
+    const type = detectActionType(acc);
+    return `<tr onclick="selectSlot('${id}')" style="cursor:pointer; ${selectedSlot === id ? 'background:#eef;' : ''}">
+      <td>0x${HARDWARE_SLOT_IDS[id].toString(16).toUpperCase().padStart(2,'0')}</td>
+      <td>${id}</td>
+      <td>${type}</td>
+      <td><b>${acc || '—'}</b></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderEditor() {
+  const acc = getSlotAccord(selectedSlot);
+  const type = detectActionType(acc);
+
+  document.getElementById('ed-slot-name').textContent = `${selectedSlot} (Layer ${currentLayer}, Row ${activeRowIndex + 1})`;
+
+  const captureStatus = document.getElementById('capture-status');
+  captureStatus.textContent = captureMode ? 'PRESS KEY...' : '';
+
+  document.getElementById('type-radio-key').checked = (type === 'key');
+  document.getElementById('type-radio-mouse').checked = (type === 'mouse');
+  document.getElementById('type-radio-media').checked = (type === 'media');
+
+  document.getElementById('panel-key').style.display = (type === 'key') ? 'block' : 'none';
+  document.getElementById('panel-mouse').style.display = (type === 'mouse') ? 'block' : 'none';
+  document.getElementById('panel-media').style.display = (type === 'media') ? 'block' : 'none';
+
+  const parts = acc.split('-');
+  const baseKey = parts[parts.length - 1];
+  const mods = parts.slice(0, parts.length - 1);
+
+  document.getElementById('chk-ctrl').checked = mods.includes('ctrl');
+  document.getElementById('chk-shift').checked = mods.includes('shift');
+  document.getElementById('chk-alt').checked = mods.includes('alt') || mods.includes('opt');
+  document.getElementById('chk-win').checked = mods.includes('win') || mods.includes('cmd');
+
+  document.getElementById('key-select').value = HID_USAGE_MAP[baseKey] !== undefined ? baseKey : '';
+  document.getElementById('raw-accord-input').value = acc;
+}
+
+function selectSlot(slotId) {
+  selectedSlot = slotId;
+  captureMode = false;
+  updateUI();
+}
+
+function switchLayer(layerNum) {
+  currentLayer = layerNum;
+  updateUI();
+}
+
+function changeOrientation(val) {
+  model.orientation = val;
+  saveConfigToStorage();
+  refreshYamlBox();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SLOT EDITING
+// ══════════════════════════════════════════════════════════════════
+function changeSlotType(type) {
+  const cur = getSlotAccord(selectedSlot);
+  if (type === 'mouse' && !MOUSE_BASE_MAP[cur]) setSlotAccord(selectedSlot, 'click');
+  else if (type === 'media' && !MEDIA_USAGE_MAP[cur]) setSlotAccord(selectedSlot, 'volumeup');
+  else if (type === 'key' && (MOUSE_BASE_MAP[cur] || MEDIA_USAGE_MAP[cur])) setSlotAccord(selectedSlot, 'a');
+  renderEditor();
+  updateUI();
+  refreshYamlBox();
+}
+
+function reconstructAccord() {
+  const mods = [];
+  if (document.getElementById('chk-ctrl').checked) mods.push('ctrl');
+  if (document.getElementById('chk-shift').checked) mods.push('shift');
+  if (document.getElementById('chk-alt').checked) mods.push('alt');
+  if (document.getElementById('chk-win').checked) mods.push('win');
+
+  const base = document.getElementById('key-select').value;
+  const accord = [...mods, base].filter(Boolean).join('-');
+  document.getElementById('raw-accord-input').value = accord;
+
+  setSlotAccord(selectedSlot, accord);
+  updateUI();
+  refreshYamlBox();
+}
+
+function handleManualAccordInput(val) {
+  setSlotAccord(selectedSlot, val.trim());
+  updateUI();
+  refreshYamlBox();
+}
+
+function setMouseAction(act) {
+  setSlotAccord(selectedSlot, act);
+  saveConfigToStorage();
+  updateUI();
+  refreshYamlBox();
+  log(`${selectedSlot} = ${act}`);
+}
+
+function setMediaAction(act) {
+  setSlotAccord(selectedSlot, act);
+  saveConfigToStorage();
+  updateUI();
+  refreshYamlBox();
+  log(`${selectedSlot} = ${act}`);
+}
+
+function saveCurrentSlot() {
+  saveConfigToStorage();
+  refreshYamlBox();
+  log(`Saved ${selectedSlot} = ${getSlotAccord(selectedSlot) || 'empty'}`);
+}
+
+function clearCurrentSlot() {
+  setSlotAccord(selectedSlot, '');
+  saveConfigToStorage();
+  updateUI();
+  refreshYamlBox();
+  log(`Cleared ${selectedSlot}`);
+}
+
+function toggleSlotCapture() {
+  captureMode = !captureMode;
+  if (captureMode && !liveDetect) toggleLiveDetect();
+  updateUI();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  LIVE DETECTION
+// ══════════════════════════════════════════════════════════════════
+function toggleLiveDetect() {
+  liveDetect = !liveDetect;
+  const btn = document.getElementById('btn-detect-toggle');
+  if (btn) {
+    btn.textContent = liveDetect ? 'Live Key Detection (ON)' : 'Live Key Detection (OFF)';
+    btn.classList.toggle('active', liveDetect);
+  }
+}
+
+function setupEventListeners() {
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    const keyName = translateDomKey(e);
+    if (!keyName) return;
+
+    if (liveDetect || captureMode) {
+      document.getElementById('last-input-display').textContent = keyName;
+      totalHits++;
+      document.getElementById('hit-counter').textContent = totalHits;
+
+      for (const slotId of ALL_SLOTS) {
+        const acc = getSlotAccord(slotId);
+        if (acc === keyName || acc.endsWith('-' + keyName)) {
+          flashSlot(slotId);
+        }
+      }
+
+      if (captureMode && selectedSlot) {
+        e.preventDefault();
+        setSlotAccord(selectedSlot, keyName);
+        captureMode = false;
+        saveConfigToStorage();
+        updateUI();
+        refreshYamlBox();
+        log(`Captured [${keyName}] -> ${selectedSlot}`);
+      }
+    }
+  });
+
+  window.addEventListener('wheel', e => {
+    if (liveDetect) {
+      const act = e.deltaY < 0 ? 'wheelup' : 'wheeldown';
+      document.getElementById('last-input-display').textContent = act;
+      flashSlot(e.deltaY < 0 ? 'knob-ccw' : 'knob-cw');
+    }
+  }, { passive: true });
+}
+
+function translateDomKey(e) {
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return null;
+  const k = e.key.toLowerCase();
+  if (k === 'escape') return 'escape';
+  if (k === 'enter') return 'enter';
+  if (k === ' ') return 'space';
+  if (k === 'backspace') return 'backspace';
+  if (k === 'tab') return 'tab';
+  if (k.length === 1 && k >= 'a' && k <= 'z') return k;
+  if (k.length === 1 && k >= '0' && k <= '9') return k;
+  return k;
+}
+
+function flashSlot(slotId) {
+  const el = document.getElementById('cap-' + slotId);
+  if (!el) return;
+  el.classList.add('pressed');
+  setTimeout(() => el.classList.remove('pressed'), 140);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  WEBHID INTERFACE SELECTION
+// ══════════════════════════════════════════════════════════════════
+function scoreHIDDevice(d) {
+  let score = 0;
+  for (const col of (d.collections || [])) {
+    if (col.usagePage === 0xff00 && col.usage === 0x0001) score += 100;
+    if ((col.outputReports || []).some(r => r.reportId === 0x03)) score += 50;
+    if ((col.featureReports || []).some(r => r.reportId === 0x03)) score += 40;
+    if (col.usagePage === 0x0001 && col.usage === 0x0006) score -= 80;
+  }
+  return score;
+}
+
+function describeCollection(col) {
+  const up = '0x' + (col.usagePage ?? 0).toString(16).toUpperCase().padStart(4, '0');
+  const u  = '0x' + (col.usage ?? 0).toString(16).toUpperCase().padStart(4, '0');
+  let type = 'Other';
+  if (col.usagePage === 0x0001 && col.usage === 0x0006) type = 'Keyboard (Protected)';
+  else if (col.usagePage === 0xff00) type = 'Vendor (Programmer)';
+  return `${type} [${up}:${u}]`;
+}
+
+function updateInterfaceDropdown(devs) {
+  const sel = document.getElementById('hid-interface-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  authorizedDevices = devs;
+
+  devs.forEach((d, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx;
+    const isVendor = (d.collections || []).some(c => c.usagePage === 0xff00);
+    opt.textContent = `[${idx}] ${d.productName || 'Device'} ${isVendor ? '⭐ PROGRAMMER' : ''}`;
+    sel.appendChild(opt);
+  });
+}
+
+async function attachInterface(index) {
+  if (index < 0 || index >= authorizedDevices.length) return false;
+  if (hidDevice && hidDevice.opened) {
+    try { await hidDevice.close(); } catch (_) {}
+  }
+
+  activeDeviceIndex = index;
+  hidDevice = authorizedDevices[index];
+
+  if (!hidDevice.opened) {
+    try {
+      await hidDevice.open();
+    } catch (err) {
+      log(`Error opening [${index}]: ${err.message}`);
+      return false;
+    }
+  }
+
+  const sel = document.getElementById('hid-interface-select');
+  if (sel) sel.value = index;
+
+  const status = document.getElementById('hid-status');
+  status.textContent = `Connected: Interface [${index}]`;
+  status.style.color = 'green';
+
+  const isVendor = (hidDevice.collections || []).some(c => c.usagePage === 0xff00);
+  const hint = document.getElementById('selected-iface-hint');
+  if (hint) {
+    hint.textContent = isVendor ? '⭐ Programmer interface active' : '⚠️ Non-vendor interface';
+    hint.style.color = isVendor ? 'green' : 'red';
+  }
+  log(`Attached [${index}]: ${(hidDevice.collections || []).map(describeCollection).join(' | ')}`);
+  return true;
+}
+
+function autoSelectBestInterface(devs) {
+  if (!devs || !devs.length) return;
+  let bestIdx = 0, bestScore = -Infinity;
+  devs.forEach((d, i) => {
+    const s = scoreHIDDevice(d);
+    if (s > bestScore) { bestScore = s; bestIdx = i; }
+  });
+  attachInterface(bestIdx);
+}
+
+async function selectInterfaceByIndex(idxStr) {
+  const idx = parseInt(idxStr, 10);
+  if (!isNaN(idx)) await attachInterface(idx);
+}
+
+async function cycleHIDInterface() {
+  if (!authorizedDevices.length) return;
+  const nextIdx = (activeDeviceIndex + 1) % authorizedDevices.length;
+  await attachInterface(nextIdx);
+}
+
+async function scanHIDDevices() {
+  log("=== SCAN INTERFACES ===");
+  const devs = await navigator.hid.getDevices();
+  devs.forEach((d, i) => {
+    log(`[${i}] ${d.productName || 'HID'}: ${(d.collections || []).map(describeCollection).join('; ')}`);
+  });
+}
+
+async function connectWebHID() {
+  if (!navigator.hid) {
+    alert("WebHID not supported. Use Google Chrome or Microsoft Edge.");
+    return;
+  }
+  try {
+    const requested = await navigator.hid.requestDevice({
+      filters: [{ vendorId: 0x1189 }]
+    });
+    const devs = await navigator.hid.getDevices();
+    const allDevs = devs.length ? devs : requested;
+    if (!allDevs.length) return;
+    updateInterfaceDropdown(allDevs);
+    autoSelectBestInterface(allDevs);
+  } catch (err) {
+    log(`Connect error: ${err.message}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FLASH PACKETS & LED CONTROL
+// ══════════════════════════════════════════════════════════════════
+function pad64(arr) {
+  const buf = new Uint8Array(64);
+  buf.set(arr.slice(0, 64));
+  return buf;
+}
+
+function buildPacketsForSlot(slotId, accordStr, layerNum) {
+  const slotByte = HARDWARE_SLOT_IDS[slotId];
+  if (!slotByte) return [];
+  const L = layerNum || 1;
+  const cmdBase = (L & 0x0F) << 4;
+
+  accordStr = (accordStr || '').trim();
+  if (!accordStr) {
+    return [
+      pad64([0xA1, L, 0x00, 0x00]),
+      pad64([slotByte, cmdBase | 0x00, 0x00, 0x00]),
+      pad64([0xAA, 0xAA, 0x00, 0x00])
+    ];
+  }
+
+  // Media Key
+  if (MEDIA_USAGE_MAP[accordStr.toLowerCase()]) {
+    const mediaCode = MEDIA_USAGE_MAP[accordStr.toLowerCase()];
+    return [
+      pad64([0xA1, L, 0x00, 0x00]),
+      pad64([slotByte, cmdBase | 0x02, mediaCode, 0x00]),
+      pad64([0xAA, 0xAA, 0x00, 0x00])
+    ];
+  }
+
+  // Mouse Action (supports modifiers e.g. ctrl-wheelup, shift-click)
+  const lower = accordStr.toLowerCase();
+  const parts = lower.split('-');
+  const baseAct = parts[parts.length - 1];
+  let mouseCode = MOUSE_BASE_MAP[baseAct];
+
+  if (!mouseCode) {
+    if (baseAct.startsWith('wheel(')) {
+      const match = baseAct.match(/wheel\((-?\d+)\)/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        mouseCode = val >= 0 ? 0x10 : 0x20;
+      }
+    } else if (baseAct.startsWith('click(')) {
+      if (baseAct.includes('middle')) mouseCode = 0x04;
+      else if (baseAct.includes('right')) mouseCode = 0x02;
+      else mouseCode = 0x01;
+    }
+  }
+
+  if (mouseCode) {
+    let modByte = 0;
+    parts.slice(0, parts.length - 1).forEach(m => { modByte |= (MOD_FLAGS[m] || 0); });
+    return [
+      pad64([0xA1, L, 0x00, 0x00]),
+      pad64([slotByte, cmdBase | 0x01, 0x01, 0x03, modByte, mouseCode, 0x00]),
+      pad64([0xAA, 0xAA, 0x00, 0x00])
+    ];
+  }
+
+  // Key Chords / Sequences: e.g. "alt-ctrl,ctrl-b"
+  const chords = accordStr.split(',');
+  const packets = [pad64([0xA1, L, 0x00, 0x00])];
+
+  chords.forEach((chord, idx) => {
+    const chordParts = chord.trim().toLowerCase().split('-');
+    const chordBase = chordParts[chordParts.length - 1];
+    let modByte = 0;
+    chordParts.slice(0, chordParts.length - 1).forEach(m => { modByte |= (MOD_FLAGS[m] || 0); });
+
+    let keyUsage = 0x00;
+    const customMatch = chordBase.match(/^<(\d+)>$/);
+    if (customMatch) {
+      keyUsage = parseInt(customMatch[1], 10) & 0xFF;
+    } else {
+      keyUsage = HID_USAGE_MAP[chordBase] || 0x00;
+    }
+
+    const seqIdx = (idx + 1) & 0xFF;
+    packets.push(pad64([slotByte, cmdBase | 0x01, seqIdx, 0x01, modByte, keyUsage, 0x00]));
+  });
+
+  packets.push(pad64([0xAA, 0xAA, 0x00, 0x00]));
+  return packets;
+}
+
+async function sendRawPacket(pkt, targetReportId) {
+  if (!hidDevice || !hidDevice.opened) throw new Error("No open HID interface");
+  const rid = targetReportId !== undefined ? targetReportId : 3;
+
+  try {
+    await hidDevice.sendReport(rid, pkt);
+  } catch (err) {
+    try {
+      await hidDevice.sendFeatureReport(rid, pkt);
+    } catch (_) {
+      if (rid !== 0) await hidDevice.sendReport(0, pkt);
+      else throw err;
+    }
+  }
+}
+
+// LED Control Implementation (CH57x protocol)
+async function sendLedMode() {
+  if (!hidDevice || !hidDevice.opened) {
+    alert("Connect WebHID first.");
+    return;
+  }
+  const mode = parseInt(document.getElementById('led-mode-select').value, 10);
+  const status = document.getElementById('led-status');
+  status.textContent = 'Applying...';
+
+  const p1 = pad64([0xA1, 0x01, 0x00, 0x00]);
+  const p2 = pad64([0xB0, 0x18, mode, 0x00]);
+  const p3 = pad64([0xAA, 0xA1, 0x00, 0x00]);
+
+  try {
+    await sendRawPacket(p1, 3);
+    await new Promise(r => setTimeout(r, 60));
+    await sendRawPacket(p2, 3);
+    await new Promise(r => setTimeout(r, 60));
+    await sendRawPacket(p3, 3);
+    status.textContent = `Applied mode ${mode}`;
+    log(`✓ LED mode ${mode} applied.`);
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    log(`✗ LED error: ${err.message}`);
+  }
+}
+
+async function flashLayer(layerNum) {
+  if (!hidDevice || !hidDevice.opened) {
+    alert("Connect WebHID first.");
+    return false;
+  }
+
+  const ridEl = document.getElementById('report-id-select');
+  const targetRid = ridEl ? parseInt(ridEl.value, 10) : 3;
+  const delayEl = document.getElementById('packet-delay-select');
+  const delayMs = delayEl ? parseInt(delayEl.value, 10) : 80;
+
+  log(`-- Flash Layer ${layerNum} (Row ${activeRowIndex + 1}, Knob ${activeKnobIndex + 1}) --`);
+  try {
+    for (const slotId of ALL_SLOTS) {
+      const acc = getSlotAccord(slotId);
+      const packets = buildPacketsForSlot(slotId, acc, layerNum);
+      for (const pkt of packets) {
+        await sendRawPacket(pkt, targetRid);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    log(`✓ Layer ${layerNum} flash complete.`);
+    return true;
+  } catch (err) {
+    log(`✗ Flash error: ${err.message}`);
+    return false;
+  }
+}
+
+async function sendActiveLayerToDevice() {
+  await flashLayer(currentLayer);
+}
+
+async function sendAllLayersToDevice() {
+  log("Flashing all 3 layers...");
+  for (let l = 1; l <= 3; l++) {
+    const ok = await flashLayer(l);
+    if (!ok) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
+async function testDiagnosticWrite() {
+  if (!hidDevice || !hidDevice.opened) {
+    alert("Connect WebHID first.");
+    return;
+  }
+  try {
+    await sendRawPacket(pad64([0xA1, 0x01, 0x00, 0x00]), 3);
+    log("✓ Diagnostic write accepted.");
+  } catch (err) {
+    log(`✗ Diagnostic failed: ${err.message}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  YAML & STORAGE
+// ══════════════════════════════════════════════════════════════════
+function refreshYamlBox() {
+  const box = document.getElementById('yaml-text-box');
+  if (box) box.value = generateYAML();
+}
+
+function applyYamlFromBox() {
+  const txt = document.getElementById('yaml-text-box').value;
+  try {
+    parseYamlIntoModel(parseYamlText(txt));
+    saveConfigToStorage();
+    updateUI();
+    log("YAML applied.");
+  } catch (err) {
+    alert("YAML error: " + err.message);
+  }
+}
+
+function downloadYAML() {
+  const blob = new Blob([generateYAML()], { type: 'text/yaml;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mapping.yaml';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  log("Downloaded mapping.yaml");
+}
+
+function handleYamlFileImport(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      parseYamlIntoModel(parseYamlText(ev.target.result));
+      saveConfigToStorage();
+      updateUI();
+      refreshYamlBox();
+      log(`Opened ${file.name}`);
+    } catch (err) {
+      alert("Error reading YAML: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+function saveConfigToStorage() {
+  try {
+    localStorage.setItem('ch57x-cfg-model', JSON.stringify({
+      model: model,
+      activeRow: activeRowIndex,
+      activeKnob: activeKnobIndex
+    }));
+  } catch (_) {}
+}
+
+function loadConfigFromStorage() {
+  try {
+    const raw = localStorage.getItem('ch57x-cfg-model');
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p.model && p.model.layers) {
+        model = p.model;
+        activeRowIndex = p.activeRow || 0;
+        activeKnobIndex = p.activeKnob || 0;
+        refreshYamlBox();
+        return;
+      }
+    }
+  } catch (_) {}
+  loadDefaultPreset();
+}
+
+function populateKeyDropdown() {
+  const sel = document.getElementById('key-select');
+  sel.innerHTML = '<option value="">-- Key --</option>' +
+    Object.keys(HID_USAGE_MAP).map(k => `<option value="${k}">${k}</option>`).join('');
+}
+
+function log(msg) {
+  const el = document.getElementById('device-log');
+  if (!el) return;
+  el.textContent += (el.textContent ? '\n' : '') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+init();
+</script>
+</body>
+</html>
